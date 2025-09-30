@@ -12,109 +12,52 @@ echo "--- Creating test suite files ---"
 mkdir -p tests
 
 # --- 1. Create the Python configuration file (conf.py) ---
-
-# This file contains all the necessary settings for the test run.
+# This file contains all the necessary settings for the test run,
+# based on the user's working example.
 cat > tests/conf.py << 'EOF'
-import pytest
 # Test Environment Configuration
-# This is needed to dynamically construct the vitisPath
 import os
+
+# --- Dynamic Version Configuration ---
 version = os.environ.get("NEW_VIVADO_VERSION", "2025.1")
 build = f"{version}_daily_latest"
+plnx_build = f"petalinux-v{version}_released"
 
-# Board farm integration settings
+# --- Board Farm Integration Settings ---
 board_interface = "systest"
 board_type = "zcu102"
 systest_base_host = "xsjbf1"
 boards = ["zcu102"]
 systest_init_cmds = ['message "Jenkins ZCU102 Ethernet Automation"']
 
-# Serial port settings
+# --- Serial and Login Settings ---
 com = "/dev/ttyUSB0"
 baudrate = "115200"
-
-# Target login credentials
 target_user = "petalinux"
 target_password = "root"
 autologin = True
 
-# TFTP Boot Configuration
-ip = "10.10.70.101" 
-image_address = "200000"
-rootfs_address = "4000000"
-dtb_address = "100000"
-
-#Add the mandatory vitisPath required by the boot components.
+# --- Tool and Project Path Configurations ---
 vitisPath = f"/proj/xbuilds/{build}/installs/lin64/{version}/Vitis/"
-
-
-# --- 2. Verify image paths ---
-design_name = "pl_eth_10g" 
-workspace = "/public/cases/ajayad/Ethernet_Design_Hub"
-IMAGE_DIR = os.path.join(workspace, "ZCU102-Ethernet", "2024.2", design_name, "Software", "PetaLinux", "images", "linux")       
-#IMAGE_DIR = "./images/linux/"
-image_path = os.path.abspath(IMAGE_DIR)
-if not os.path.exists(os.path.join(image_path, "Image")):
-    pytest.fail(f"Kernel 'Image' not found in: {image_path}")
-if not os.path.exists(os.path.join(image_path, "rootfs.cpio.gz.u-boot")):
-    pytest.fail(f"Rootfs 'rootfs.cpio.gz.u-boot' not found in: {image_path}")
-if not os.path.exists(os.path.join(image_path, "system.dtb")):
-    pytest.fail(f"Device tree 'system.dtb' not found in: {image_path}")
-
-#log.info("Image files verified successfully.")
-component_deploy_dir = image_path
-boot_images = "kernel"
-boottype = "jtag_boot"
-prebuilt_boot_type = "jtag_boot"
-plnx_proj_path = "./"
-plnx_build = "petalinux-v{version}_released"
-imagesDir = IMAGE_DIR
-image_deploy = IMAGE_DIR
-
-PLNX_TMP_PATH = "/tmp/zcu102-jenkins-upgrade"
-BSP_PATH = "/proj/petalinux/released/Petalinux-v{version}/finalrelease/release/petalinux-v{version}_05180714/bsp/release"
-
 PLNX_TOOL = (
-    "/proj/petalinux/released/Petalinux-v{version}/finalrelease/release/petalinux-v{version}_05180714/tool/petalinux-v{version}-final/settings.sh"
+    f"/proj/petalinux/released/Petalinux-v{version}/finalrelease/release/"
+    f"petalinux-v{version}_05180714/tool/petalinux-v{version}-final/settings.sh"
 )
+BSP_PATH = f"/proj/petalinux/released/Petalinux-v{version}/finalrelease/release/petalinux-v{version}_05180714/bsp/release"
 
+# --- Image and Project Definitions ---
+design_name = "pl_eth_10g" # Placeholder, can be overridden
+workspace = "/public/cases/ajayad/Ethernet_Design_Hub"
+IMAGE_DIR = os.path.join(workspace, "ZCU102-Ethernet", "2024.2", design_name, "Software", "PetaLinux", "images", "linux")
+imagesDir = IMAGE_DIR
+plnx_proj_path = os.getcwd()
+PLNX_TMP_PATH = "/tmp/zcu102-jenkins-upgrade"
+plnx_proj = "./" # os.getcwd() # f"xilinx-zcu102-v{version}-final"
 
-PLNX_GOLDEN_BSP = ""
-
-load_interface = "petalinux"
+# --- Boot Configuration ---
+boottype = "jtag_boot"
 platform = "zynqmp"
-
-# Qemu configurations
-plnx_wsDir = "./"
-load_interface == "petalinux"
-QEMU_TMP = "/tmp/qemu_softip_linux"
-plnx_proj_dir = "./"
-plnx_proj = "xilinx-zcu102-v{version}-final",
-bootstage = "kernel"
-qemu_args = (
-    "--rootfs images/linux/rootfs.cpio.gz.u-boot --tftp {plnx_proj_dir}/images/linux/"
-)
-
-from box import Box
-
-plnx = Box(default_box=True, box_intact_types=[list, tuple, dict])
-plnx.component.kernel.url = ""
-plnx.component.kernel.branch = ""
-plnx.component.kernel.srcrev = ""
-plnx.component.kernel.checksum = ""
-plnx.component.kernel.externalsrc = ""
-plnx.component.uboot.url = ""
-plnx.component.uboot.branch = ""
-plnx.component.uboot.srcrev = ""
-plnx.component.uboot.checksum = ""
-plnx.component.uboot.externalsrc = ""
-plnx.component.atf.url = ""
-plnx.component.atf.branch = ""
-plnx.component.atf.srcrev = ""
-plnx.component.atf.checksum = ""
-plnx.component.atf.externalsrc = ""
-
-
+load_interface = "petalinux"
 EOF
 
 # --- 2. Create the pytest conftest.py to apply workarounds ---
@@ -137,10 +80,8 @@ import socket
 import logging
 import time
 from roast.component.petalinux import petalinux_boot
-# FIX: Import the linuxcons function
-from roast.component.board.boot import uboot_login, _petalinux_login, linuxcons, jtag_boot
-from roast.component.basebuild import Basebuild
-from roast.component.board.board import Board
+from roast.component.board.boot import _petalinux_login, linuxcons, uboot_login
+from roast.component.petalinux import *
 
 # Import our custom configuration
 import conf
@@ -149,50 +90,59 @@ import conf
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
-
-
 # This test class uses the fixtures provided by pytest-roast
 class TestDeployment:
 
-
-    def test_boot_and_verify(self, systest_board_session, create_configuration):
+    def test_jtag_boot_and_verify(self, systest_board_session, create_configuration):
         """
-        Acquires a board, boots to U-Boot, and then uses TFTP
-        to download and boot the PetaLinux kernel and rootfs.
+        Acquires a board, deploys images via JTAG,
+        and verifies that it boots to a PetaLinux prompt.
         """
         
         # --- 1. Get the board and config from the roast fixtures ---
+        board = systest_board_session
         config = create_configuration(base_params=['conf.py'])
-        design_name = "pl_eth_10g" 
-        workspace = "/public/cases/ajayad/Ethernet_Design_Hub"
-        version = "2024.2"
-        image_dir = os.path.join(workspace, "ZCU102-Ethernet", version, design_name, "Software", "PetaLinux", "images", "linux")
-        
+        # --- 2. Set up absolute image paths ---
+        image_dir = conf.IMAGE_DIR
         boot_bin_path = os.path.abspath(os.path.join(image_dir, "BOOT.BIN"))
         image_ub_path = os.path.abspath(os.path.join(image_dir, "image.ub"))
         bitstream_path = os.path.abspath(os.path.join(image_dir, "system.bit"))
+        # Add deployment-specific info to the board's configuration
+        config['image_deploy'] = f"boot_bin={boot_bin_path},linux_image={image_ub_path}"
+        
+
+        board.config = config
+
+        
+
         if not os.path.exists(boot_bin_path):
             pytest.fail(f"BOOT.BIN not found at: {boot_bin_path}")
         if not os.path.exists(image_ub_path):
             pytest.fail(f"image.ub not found at: {image_ub_path}")
+        if not os.path.exists(bitstream_path):
+            pytest.fail(f"system.bit not found at: {bitstream_path}")
 
         log.info("Image files verified successfully.")
         
-        # --- 3. Start the boot process ---
+        # --- 3. Start the board session and boot ---
+        board.invoke_xsdb = False
+        board.invoke_hwserver = True
+        board.reboot = True
+        board.start() # This executes 'systest' on the base_host
+        log.info(f"Board acquired via SBC '{board.config['systest_base_host']}'")
         
-        config['image_deploy'] = f"boot_bin={boot_bin_path},linux_image={image_ub_path}, bitfile={bitstream_path}"
-        
-        board = linuxcons(config, systest_board_session)
-
-
-        
-        #petalinux_boot(board.config, boottype="jtag_boot", hwserver=board.config['systest_base_host'], bitfile=bitstream_path)
+      
+        log.info("Initiating JTAG boot...")
+        # Use 'jtag_boot' and pass the correct hwserver host and bitfile
+        petalinux_boot(board.config, boottype="kernel", hwserver=board.systest.systest_host, bitfile=bitstream_path)
         log.info("JTAG boot command sent.")
-        
-        # --- 4. Verify Linux boot ---
-        board.serial.prompt = None # Reset prompt for Linux login
+        #uboot_login(board.serial)
+        time.sleep(5)
         log.info("Waiting for PetaLinux login prompt...")
-        _petalinux_login(board)
+            
+        #_petalinux_login(board)
+        board.serial.prompt = None
+        linux_login_cons(board.serial)
         log.info("SUCCESS: Board has booted to PetaLinux successfully!")
 EOF
 
